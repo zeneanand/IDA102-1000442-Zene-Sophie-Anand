@@ -1,7 +1,6 @@
 # app.py
 """
-Water Buddy - Streamlit version (No SQLite, JSON file storage)
-Run with: streamlit run app.py
+Water Buddy - Streamlit version 
 """
 
 import streamlit as st
@@ -268,7 +267,7 @@ with col1:
     st.image("https://img.icons8.com/fluency/96/water.png", width=72)
 with col2:
     st.markdown("<h1 style='margin-bottom:0px; color:#00E5FF'>Water Buddy</h1>", unsafe_allow_html=True)
-    st.markdown("<div style='color:#BFEFF6'>No-SQLite Edition — File storage</div>", unsafe_allow_html=True)
+    
 
 st.markdown("---")
 
@@ -476,5 +475,4 @@ if ({'true' if st.session_state.get('reminders_enabled', False) else 'false'}) {
 """
 st.components.v1.html(notification_js, height=0)
 
-st.markdown("---")
-st.markdown("Built from a Tkinter prototype — ported to Streamlit. Keep this tab open to receive browser reminders.")
+
