@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Tuple
 
 # ---------------------------
-# Config
+# Streamlit page config
 # ---------------------------
 st.set_page_config(page_title="Water Buddy", layout="wide", initial_sidebar_state="expanded")
 
@@ -51,8 +51,7 @@ def write_json(path: Path, data):
 # Data functions
 # ---------------------------
 def get_profile() -> Optional[Dict]:
-    data = read_json(PROFILE_FILE, None)
-    return data
+    return read_json(PROFILE_FILE, None)
 
 def set_profile(name: str, age: int, weight_kg: float, activity: str):
     data = {
@@ -77,7 +76,6 @@ def log_water_ml(amount_ml: int):
         "amount_ml": int(amount_ml)
     })
     write_logs(logs)
-    # update badges after writing log
     check_badges_and_streaks()
 
 def get_totals_for_days(days: int = 7) -> List[Dict]:
@@ -90,10 +88,12 @@ def get_totals_for_days(days: int = 7) -> List[Dict]:
             try:
                 dt = datetime.fromisoformat(log["logged_at"])
             except Exception:
-                # ignore malformed entries
                 continue
             if dt.date() == d:
-                total += int(log.get("amount_ml", 0))
+                try:
+                    total += int(log.get("amount_ml", 0))
+                except Exception:
+                    continue
         results.append({"date": d, "total_ml": total})
     return results
 
@@ -107,7 +107,10 @@ def get_today_total() -> int:
         except Exception:
             continue
         if dt.date() == today:
-            total += int(log.get("amount_ml", 0))
+            try:
+                total += int(log.get("amount_ml", 0))
+            except Exception:
+                continue
     return total
 
 def export_logs_df() -> pd.DataFrame:
@@ -115,7 +118,6 @@ def export_logs_df() -> pd.DataFrame:
     if not logs:
         return pd.DataFrame(columns=["logged_at", "amount_ml"])
     df = pd.DataFrame(logs)
-    # Ensure columns order
     if "logged_at" in df.columns and "amount_ml" in df.columns:
         df = df[["logged_at", "amount_ml"]]
     return df
@@ -159,7 +161,7 @@ def predictor_adjustment() -> float:
     profile = get_profile()
     if not profile:
         return 1.0
-    goal = calculate_goal_ml(profile['weight_kg'], age=profile['age'], activity=profile['activity'])
+    goal = calculate_goal_ml(profile['weight_kg'], age=profile.get('age'), activity=profile.get('activity', 'normal'))
     if avg < 0.7 * goal:
         return 1.2
     elif avg < 0.9 * goal:
@@ -182,34 +184,35 @@ def check_badges_and_streaks():
         return
 
     badges = read_badges()
-    existing = {b['name'] for b in badges}
+    existing_names = {b.get('name') for b in badges}
 
     totals = get_totals_for_days(7)
-    goal = calculate_goal_ml(profile['weight_kg'], age=profile['age'], activity=profile['activity'])
+    goal = calculate_goal_ml(profile['weight_kg'], age=profile.get('age'), activity=profile.get('activity', 'normal'))
     good_days = sum(1 for t in totals if t['total_ml'] >= 0.75 * goal)
 
+    new_badges = []
     # Award 7-day streak
-    if good_days == 7 and "7-day-streak" not in existing:
-        badges.append({"name": "7-day-streak", "earned_at": datetime.utcnow().isoformat()})
+    if good_days == 7 and "7-day-streak" not in existing_names:
+        new_badges.append({"name": "7-day-streak", "earned_at": datetime.utcnow().isoformat()})
 
     # Award first-log
     logs = read_logs()
-    if len(logs) >= 1 and "first-log" not in existing:
-        badges.append({"name": "first-log", "earned_at": datetime.utcnow().isoformat()})
+    if len(logs) >= 1 and "first-log" not in existing_names:
+        new_badges.append({"name": "first-log", "earned_at": datetime.utcnow().isoformat()})
 
-    # Save badges if changed
-    if len(badges) != len(existing):
-        write_badges(badges)
-    else:
-        # There might be new badges added (avoid duplicates) - ensure no duplicates then write
-        names_now = {b['name'] for b in badges}
-        if names_now != existing:
-            write_badges(badges)
+    if new_badges:
+        badges.extend(new_badges)
+        # ensure uniqueness
+        unique = {b["name"]: b for b in badges}
+        write_badges(list(unique.values()))
 
 def get_badges() -> List[Tuple[str, str]]:
     badges = read_badges()
-    # return list of (name, earned_at)
-    return [(b.get("name", ""), b.get("earned_at", "")) for b in sorted(badges, key=lambda x: x.get("earned_at", ""), reverse=True)]
+    # sort descending by earned_at if present
+    def key_fn(b):
+        return b.get("earned_at", "")
+    badges_sorted = sorted(badges, key=key_fn, reverse=True)
+    return [(b.get("name", ""), b.get("earned_at", "")) for b in badges_sorted]
 
 # ---------------------------
 # Visuals (matplotlib)
@@ -220,7 +223,7 @@ def plot_progress_donut(consumed_ml: int, goal_ml: int):
     ax.axis('equal')
     sizes = [pct, 1 - pct]
     colors = ["#00E5FF", "#04262B"]
-    wedges, _ = ax.pie(sizes, startangle=90, colors=colors, wedgeprops=dict(width=0.38))
+    ax.pie(sizes, startangle=90, colors=colors, wedgeprops=dict(width=0.38))
     c = Circle((0, 0), 0.62, color="#071927")
     ax.add_patch(c)
     ax.text(0, 0.08, f"{int(pct*100)}%", ha='center', va='center', fontsize=18, color="#CFF8FF", weight='bold')
@@ -276,7 +279,7 @@ with st.sidebar:
     st.markdown("### Profile")
     profile = get_profile()
     if profile:
-        st.markdown(f"**{profile.get('name','You')}**  \nAge: {profile.get('age','-')}  \nWeight: {profile.get('weight_kg','-')} kg  \nActivity: {profile.get('activity','-')}")
+        st.markdown(f"**{profile.get('name','You')}**  \\nAge: {profile.get('age','-')}  \\nWeight: {profile.get('weight_kg','-')} kg  \\nActivity: {profile.get('activity','-')}")
     else:
         st.info("No profile set yet. Fill the form below and click Save.")
 
@@ -290,7 +293,7 @@ with st.sidebar:
         if st.button("Save profile"):
             set_profile(name or "You", age, weight, activity)
             st.success("Profile saved.")
-            st.experimental_rerun()
+            st.rerun()
 
     st.markdown("---")
     st.markdown("### Quick Log")
@@ -299,27 +302,27 @@ with st.sidebar:
         if st.button("+50 ml"):
             log_water_ml(50)
             st.success("Logged 50 ml")
-            st.experimental_rerun()
+            st.rerun()
         if st.button("+250 ml"):
             log_water_ml(250)
             st.success("Logged 250 ml")
-            st.experimental_rerun()
+            st.rerun()
     with qcol2:
         if st.button("+100 ml"):
             log_water_ml(100)
             st.success("Logged 100 ml")
-            st.experimental_rerun()
+            st.rerun()
         if st.button("+500 ml"):
             log_water_ml(500)
             st.success("Logged 500 ml")
-            st.experimental_rerun()
+            st.rerun()
 
     st.markdown("Custom log (ml)")
     custom_ml = st.number_input("", min_value=1, step=50, value=250, key="custom_ml_input")
     if st.button("Log custom"):
         log_water_ml(custom_ml)
         st.success(f"Logged {custom_ml} ml")
-        st.experimental_rerun()
+        st.rerun()
 
     st.markdown("---")
     st.markdown("### Reminders (browser)")
@@ -328,11 +331,12 @@ with st.sidebar:
     if st.button("Enable reminders"):
         st.session_state['reminders_enabled'] = True
         st.session_state['rem_int'] = int(remind_interval)
-        st.components.v1.html("<script>window.startWaterBuddyReminders();</script>", height=0)
+        # call client-side start (script below exposes window.startWaterBuddyReminders)
+        st.components.v1.html("<script>window.startWaterBuddyReminders && window.startWaterBuddyReminders();</script>", height=0)
         st.success(f"Reminders enabled every {int(remind_interval)} minutes (browser notifications).")
     if st.button("Disable reminders"):
         st.session_state['reminders_enabled'] = False
-        st.components.v1.html("<script>window.stopWaterBuddyReminders();</script>", height=0)
+        st.components.v1.html("<script>window.stopWaterBuddyReminders && window.stopWaterBuddyReminders();</script>", height=0)
         st.info("Reminders disabled.")
 
     st.markdown("---")
@@ -353,7 +357,7 @@ with st.sidebar:
 profile = get_profile()
 if profile:
     try:
-        goal = calculate_goal_ml(profile['weight_kg'], age=profile['age'], activity=profile['activity'])
+        goal = calculate_goal_ml(profile['weight_kg'], age=profile.get('age'), activity=profile.get('activity', 'normal'))
     except Exception:
         goal = 2000
 else:
@@ -415,7 +419,7 @@ with eco_col2:
     if st.button("Log 250 ml (quick)"):
         log_water_ml(250)
         st.success("Logged 250 ml")
-        st.experimental_rerun()
+        st.rerun()
 
 st.markdown("---")
 st.markdown("### How suggestions are generated")
@@ -431,6 +435,7 @@ with st.expander("Show raw logs"):
 # ---------------------------
 # Notification JS (client-side reminders)
 # ---------------------------
+# This script defines start/stop and auto-starts if session_state enabled.
 notification_js = f"""
 <script>
 const intervalMinutes = {int(st.session_state.get('rem_int', 60))};
@@ -464,7 +469,6 @@ function stopTimer() {{
 }}
 window.startWaterBuddyReminders = askPermissionAndStart;
 window.stopWaterBuddyReminders = stopTimer;
-// Auto-start reminders if enabled in session_state
 if ({'true' if st.session_state.get('reminders_enabled', False) else 'false'}) {{
     askPermissionAndStart();
 }}
